@@ -79,6 +79,9 @@ class TestAggregation(unittest.TestCase):
     def test_mean(self):
         self._test_aggregation(biggus.mean, np.mean)
 
+    def test_max(self):
+        self._test_aggregation(biggus.max, np.max)
+
     def test_std(self):
         self._test_aggregation(biggus.std, np.std, ddof=0)
         self._test_aggregation(biggus.std, np.std, ddof=1)

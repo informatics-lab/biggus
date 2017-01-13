@@ -2314,11 +2314,17 @@ class _MinMaskedStreamsHandler(_AggregationStreamsHandler):
 
 
 class _MaxStreamsHandler(_AggregationStreamsHandler):
+    def __init__(self, array, axis):
+        # The mdtol argument is not applicable to non-masked arrays
+        # so it is ignored.
+        super(_MaxStreamsHandler, self).__init__(array, axis)
+
     def bootstrap(self, processed_chunk_shape):
-        self.result = np.zeros(processed_chunk_shape, dtype=self.array.dtype)
+        self.running_total = np.zeros(processed_chunk_shape,
+                                      dtype=self.array.dtype)
 
     def finalise(self):
-        array = self.result
+        array = self.running_total / self.array.shape[self.axis]
         # Promote array-scalar to 0-dimensional array.
         if array.ndim == 0:
             array = np.array(array)
@@ -2326,23 +2332,33 @@ class _MaxStreamsHandler(_AggregationStreamsHandler):
         return chunk
 
     def process_data(self, data):
-        self.result = np.max(data, axis=self.axis)
+        self.running_total += np.max(data, axis=self.axis)
+
 
 
 class _MaxMaskedStreamsHandler(_AggregationStreamsHandler):
+    def __init__(self, array, axis, mdtol):
+        self._mdtol = mdtol
+        super(_MaxMaskedStreamsHandler, self).__init__(array, axis)
+
     def bootstrap(self, processed_chunk_shape):
-        self.result = np.zeros(processed_chunk_shape, dtype=self.array.dtype)
+        shape = processed_chunk_shape
+        self.running_max = np.zeros(shape, dtype=self.array.dtype)
 
     def finalise(self):
-        array = self.result
+        # Avoid any runtime-warning for divide by zero.
+        mask = self.running_max == -np.inf
+        # denominator = np.ma.array(self.running_count, mask=mask, dtype=float)
+        array = np.ma.array(self.running_max, mask=mask)
         # Promote array-scalar to 0-dimensional array.
         if array.ndim == 0:
             array = np.ma.array(array)
+
         chunk = Chunk(self.current_keys, array)
         return chunk
 
     def process_data(self, data):
-        self.result = np.max(data, axis=self.axis)
+        self.running_max = np.max([self.running_max, np.max(data, axis=self.axis)])
 
 
 class _SumStreamsHandler(_AggregationStreamsHandler):
@@ -2724,16 +2740,21 @@ def max(a, axis=None):
         the last to the first axis. If axis is a tuple of ints, the operation
         is performed over multiple axes.
 
+
     Returns
     -------
     out : Array
         The Array representing the requested max.
     """
+
     axes = _normalise_axis(axis, a)
-    assert axes is not None and len(axes) == 1
+    if axes is None or len(axes) != 1:
+        msg = "This operation is currently limited to a single axis"
+        raise AxisSupportError(msg)
+    dtype = (np.array([0], dtype=a.dtype) / 1.).dtype
     return _Aggregation(a, axes[0],
                         _MaxStreamsHandler, _MaxMaskedStreamsHandler,
-                        a.dtype, {})
+                        dtype)
 
 
 @export
